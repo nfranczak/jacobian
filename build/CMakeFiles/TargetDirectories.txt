@@ -1,0 +1,4 @@
+/home/nick/jacobian/build/CMakeFiles/jacobian.dir
+/home/nick/jacobian/build/CMakeFiles/test_jacobian.dir
+/home/nick/jacobian/build/CMakeFiles/edit_cache.dir
+/home/nick/jacobian/build/CMakeFiles/rebuild_cache.dir
