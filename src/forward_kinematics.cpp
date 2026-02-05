@@ -34,7 +34,6 @@ Eigen::Matrix3d axisAngleRotation(const Eigen::Vector3d& axis, double angle) {
     const double s = std::sin(angle);
     const double t = 1.0 - c;
 
-    // Ensure axis is normalized
     const Eigen::Vector3d a = axis.normalized();
     const double x = a.x();
     const double y = a.y();
@@ -50,7 +49,7 @@ Eigen::Matrix3d axisAngleRotation(const Eigen::Vector3d& axis, double angle) {
 
 void computeForwardKinematics(
     const Model& model,
-    const std::array<double, 6>& q,
+    const Eigen::VectorXd& q,
     Data& data)
 {
     Eigen::Matrix4d T_current = Eigen::Matrix4d::Identity();
@@ -73,10 +72,8 @@ void computeForwardKinematics(
             T_current = T_current * T_joint;
             ++revolute_count;
         }
-        // Fixed joints: placement already applied, continue
     }
 
-    // Final transform is base to end-effector
     data.end_effector_transform = T_current;
 }
 

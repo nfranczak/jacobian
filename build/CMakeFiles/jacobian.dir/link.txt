@@ -1,2 +1,0 @@
-/usr/bin/ar qc libjacobian.a CMakeFiles/jacobian.dir/src/urdf_parser.cpp.o CMakeFiles/jacobian.dir/src/forward_kinematics.cpp.o CMakeFiles/jacobian.dir/src/jacobian.cpp.o
-/usr/bin/ranlib libjacobian.a

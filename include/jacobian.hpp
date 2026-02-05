@@ -2,19 +2,19 @@
 
 #include "model.hpp"
 #include "forward_kinematics.hpp"
-#include <array>
 
 namespace jacobian {
 
-// Compute linear velocity Jacobian (3x6)
+// Compute linear velocity Jacobian (3 x num_revolute_joints)
 // Requires FK to have been computed first (data.joint_transforms and data.end_effector_transform must be valid)
 // Writes result into data.Jv
 void computeLinearJacobian(const Model& model, Data& data);
 
 // Convenience function: compute both FK and Jacobian
+// q must have model.num_revolute_joints elements
 void computeJacobian(
     const Model& model,
-    const std::array<double, 6>& q,
+    const Eigen::VectorXd& q,
     Data& data);
 
 }  // namespace jacobian

@@ -6,22 +6,22 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
-#include <random>
 
 using namespace jacobian;
 
 // Numerical Jacobian verification using central differences
-Eigen::Matrix<double, 3, 6> computeNumericalJacobian(
+Eigen::MatrixXd computeNumericalJacobian(
     const Model& model,
-    const std::array<double, 6>& q,
+    const Eigen::VectorXd& q,
     double delta = 1e-7)
 {
-    Eigen::Matrix<double, 3, 6> J_numerical;
-    Data data_plus, data_minus;
+    const size_t n = model.num_revolute_joints;
+    Eigen::MatrixXd J_numerical(3, n);
+    Data data_plus(model), data_minus(model);
 
-    for (int i = 0; i < 6; ++i) {
-        auto q_plus = q;
-        auto q_minus = q;
+    for (size_t i = 0; i < n; ++i) {
+        Eigen::VectorXd q_plus = q;
+        Eigen::VectorXd q_minus = q;
         q_plus[i] += delta;
         q_minus[i] -= delta;
 
@@ -37,8 +37,8 @@ Eigen::Matrix<double, 3, 6> computeNumericalJacobian(
     return J_numerical;
 }
 
-bool testJacobian(const Model& model, const std::array<double, 6>& q, const std::string& test_name) {
-    Data data;
+bool testJacobian(const Model& model, const Eigen::VectorXd& q, const std::string& test_name) {
+    Data data(model);
     computeJacobian(model, q, data);
 
     auto J_numerical = computeNumericalJacobian(model, q);
@@ -46,9 +46,9 @@ bool testJacobian(const Model& model, const std::array<double, 6>& q, const std:
 
     std::cout << "Test: " << test_name << "\n";
     std::cout << "  q = [";
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < q.size(); ++i) {
         std::cout << std::fixed << std::setprecision(4) << q[i];
-        if (i < 5) std::cout << ", ";
+        if (i < q.size() - 1) std::cout << ", ";
     }
     std::cout << "]\n";
 
@@ -58,80 +58,170 @@ bool testJacobian(const Model& model, const std::array<double, 6>& q, const std:
     std::cout << "  Jacobian error (Frobenius norm): " << std::scientific << error << "\n";
 
     bool passed = error < 1e-6;
-    std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
+    std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n";
 
     if (!passed) {
-        std::cout << "  Analytical Jacobian:\n" << data.Jv << "\n\n";
-        std::cout << "  Numerical Jacobian:\n" << J_numerical << "\n\n";
+        std::cout << "  Analytical Jacobian:\n" << data.Jv << "\n";
+        std::cout << "  Numerical Jacobian:\n" << J_numerical << "\n";
     }
+    std::cout << "\n";
 
     return passed;
 }
 
-int main(int argc, char* argv[]) {
-    std::string urdf_path = "urdfs/ur20FK.urdf";
-    if (argc > 1) {
-        urdf_path = argv[1];
-    }
-
-    std::cout << "Loading URDF: " << urdf_path << "\n\n";
-
-    Model model;
-    try {
-        model = parseURDF(urdf_path);
-    } catch (const std::exception& e) {
-        std::cerr << "Failed to parse URDF: " << e.what() << "\n";
-        return 1;
-    }
-
-    std::cout << "Loaded robot: " << model.name << "\n";
-    std::cout << "Total joints in chain: " << model.joints.size() << "\n";
-    std::cout << "Revolute joints: " << model.num_revolute_joints << "\n\n";
-
-    // Print joint info
-    std::cout << "Kinematic chain:\n";
-    for (size_t i = 0; i < model.joints.size(); ++i) {
-        const auto& j = model.joints[i];
-        std::cout << "  " << i << ": " << j.name
-                  << " (" << (j.type == JointType::Revolute ? "revolute" : "fixed") << ")"
-                  << " " << j.parent_link << " -> " << j.child_link << "\n";
-    }
-    std::cout << "\n";
+int main() {
+    Model ur20_fk = parseURDF("urdfs/ur20FK.urdf");
+    Model ur20_collapsed = parseURDF("urdfs/ur20Collapsed.urdf");
+    Model twolink = parseURDF("urdfs/2link.urdf");
 
     int tests_passed = 0;
     int tests_total = 0;
 
-    // Test 1: Zero configuration
+    // --- UR20 tests (6-DOF) ---
+
+    // Zero configuration
     {
-        std::array<double, 6> q = {0, 0, 0, 0, 0, 0};
-        if (testJacobian(model, q, "Zero configuration")) tests_passed++;
+        Eigen::VectorXd q = Eigen::VectorXd::Zero(6);
+        if (testJacobian(ur20_fk, q, "UR20 FK - Zero config")) tests_passed++;
+        tests_total++;
+    }
+    {
+        Eigen::VectorXd q = Eigen::VectorXd::Zero(6);
+        if (testJacobian(ur20_collapsed, q, "UR20 Collapsed - Zero config")) tests_passed++;
         tests_total++;
     }
 
-    // Test 2: Small angles
+    // Small angles
     {
-        std::array<double, 6> q = {0.1, 0.2, -0.1, 0.15, -0.05, 0.1};
-        if (testJacobian(model, q, "Small angles")) tests_passed++;
+        Eigen::VectorXd q(6);
+        q << 0.1, 0.2, -0.1, 0.15, -0.05, 0.1;
+        if (testJacobian(ur20_fk, q, "UR20 FK - Small angles")) tests_passed++;
+        tests_total++;
+    }
+    {
+        Eigen::VectorXd q(6);
+        q << 0.1, 0.2, -0.1, 0.15, -0.05, 0.1;
+        if (testJacobian(ur20_collapsed, q, "UR20 Collapsed - Small angles")) tests_passed++;
         tests_total++;
     }
 
-    // Test 3: Typical working configuration
+    // Typical working configuration
     {
-        std::array<double, 6> q = {0, -M_PI/2, M_PI/2, 0, M_PI/2, 0};
-        if (testJacobian(model, q, "Typical configuration")) tests_passed++;
+        Eigen::VectorXd q(6);
+        q << 0, -M_PI/2, M_PI/2, 0, M_PI/2, 0;
+        if (testJacobian(ur20_fk, q, "UR20 FK - Typical config")) tests_passed++;
         tests_total++;
     }
 
-    // Test 4: Random configurations
-    std::mt19937 rng(42);  // Fixed seed for reproducibility
-    std::uniform_real_distribution<double> dist(-M_PI, M_PI);
+    // --- 2-link ground-truth tests (hand-computed Jacobian values) ---
 
-    for (int t = 0; t < 5; ++t) {
-        std::array<double, 6> q;
-        for (int i = 0; i < 6; ++i) {
-            q[i] = dist(rng);
-        }
-        if (testJacobian(model, q, "Random configuration " + std::to_string(t + 1))) tests_passed++;
+    // q=[0,0]: links along X, EE at (2,0,0)
+    //   J1 at origin, axis Z: [0,0,1] x [2,0,0] = [0, 2, 0]
+    //   J2 at (1,0,0), axis Z: [0,0,1] x [1,0,0] = [0, 1, 0]
+    {
+        Eigen::VectorXd q = Eigen::VectorXd::Zero(2);
+        Data data(twolink);
+        computeJacobian(twolink, q, data);
+
+        Eigen::MatrixXd J_expected(3, 2);
+        J_expected << 0, 0,
+                      2, 1,
+                      0, 0;
+
+        double error = (data.Jv - J_expected).norm();
+        bool passed = error < 1e-10;
+        std::cout << "Test: 2-link ground truth - q=[0,0]\n";
+        std::cout << "  EE position: " << data.end_effector_transform.block<3,1>(0,3).transpose() << "\n";
+        std::cout << "  Expected Jv:\n" << J_expected << "\n";
+        std::cout << "  Got Jv:\n" << data.Jv << "\n";
+        std::cout << "  Error: " << std::scientific << error << "\n";
+        std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
+        if (passed) tests_passed++;
+        tests_total++;
+    }
+
+    // q=[pi/2, 0]: link1 along Y, link2 along Y, EE at (0,2,0)
+    //   J1 at origin, axis Z: [0,0,1] x [0,2,0] = [-2, 0, 0]
+    //   J2 at (0,1,0), axis Z: [0,0,1] x [0,1,0] = [-1, 0, 0]
+    {
+        Eigen::VectorXd q(2);
+        q << M_PI / 2, 0;
+        Data data(twolink);
+        computeJacobian(twolink, q, data);
+
+        Eigen::MatrixXd J_expected(3, 2);
+        J_expected << -2, -1,
+                       0,  0,
+                       0,  0;
+
+        double error = (data.Jv - J_expected).norm();
+        bool passed = error < 1e-10;
+        std::cout << "Test: 2-link ground truth - q=[pi/2, 0]\n";
+        std::cout << "  EE position: " << data.end_effector_transform.block<3,1>(0,3).transpose() << "\n";
+        std::cout << "  Expected Jv:\n" << J_expected << "\n";
+        std::cout << "  Got Jv:\n" << data.Jv << "\n";
+        std::cout << "  Error: " << std::scientific << error << "\n";
+        std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
+        if (passed) tests_passed++;
+        tests_total++;
+    }
+
+    // q=[0, pi/2]: link1 along X, link2 along Y, EE at (1,1,0)
+    //   J1 at origin, axis Z: [0,0,1] x [1,1,0] = [-1, 1, 0]
+    //   J2 at (1,0,0), axis Z: [0,0,1] x [0,1,0] = [-1, 0, 0]
+    {
+        Eigen::VectorXd q(2);
+        q << 0, M_PI / 2;
+        Data data(twolink);
+        computeJacobian(twolink, q, data);
+
+        Eigen::MatrixXd J_expected(3, 2);
+        J_expected << -1, -1,
+                       1,  0,
+                       0,  0;
+
+        double error = (data.Jv - J_expected).norm();
+        bool passed = error < 1e-10;
+        std::cout << "Test: 2-link ground truth - q=[0, pi/2]\n";
+        std::cout << "  EE position: " << data.end_effector_transform.block<3,1>(0,3).transpose() << "\n";
+        std::cout << "  Expected Jv:\n" << J_expected << "\n";
+        std::cout << "  Got Jv:\n" << data.Jv << "\n";
+        std::cout << "  Error: " << std::scientific << error << "\n";
+        std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
+        if (passed) tests_passed++;
+        tests_total++;
+    }
+
+    // --- 2-link numerical consistency tests (2-DOF) ---
+
+    // Zero configuration
+    {
+        Eigen::VectorXd q = Eigen::VectorXd::Zero(2);
+        if (testJacobian(twolink, q, "2-link - Zero config")) tests_passed++;
+        tests_total++;
+    }
+
+    // 90 degrees on joint 1: EE at (0, 2, 0) approximately
+    {
+        Eigen::VectorXd q(2);
+        q << M_PI / 2, 0;
+        if (testJacobian(twolink, q, "2-link - q1=90deg")) tests_passed++;
+        tests_total++;
+    }
+
+    // Both joints at 45 degrees
+    {
+        Eigen::VectorXd q(2);
+        q << M_PI / 4, M_PI / 4;
+        if (testJacobian(twolink, q, "2-link - q1=q2=45deg")) tests_passed++;
+        tests_total++;
+    }
+
+    // Folded back: joint2 at 180 degrees, EE at origin
+    {
+        Eigen::VectorXd q(2);
+        q << 0, M_PI;
+        if (testJacobian(twolink, q, "2-link - Folded back")) tests_passed++;
         tests_total++;
     }
 

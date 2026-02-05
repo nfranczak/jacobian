@@ -164,6 +164,15 @@ Where:
 - `pi` = position of joint i in base frame
 - `pe` = end-effector position in base frame
 
+## Testing
+This is a CMake-based C++ project. You can run tests with:
+cd build && ctest
+Or run the test binary directly:
+./build/test_jacobian
+If you need to rebuild first:
+cmake --build build && cd build && ctest
+
+
 ## License
 
 MIT

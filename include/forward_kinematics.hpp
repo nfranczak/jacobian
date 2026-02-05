@@ -1,7 +1,6 @@
 #pragma once
 
 #include "model.hpp"
-#include <array>
 
 namespace jacobian {
 
@@ -15,11 +14,12 @@ Eigen::Matrix4d createTransform(const Eigen::Matrix3d& R, const Eigen::Vector3d&
 // Rotation about arbitrary axis using Rodrigues' formula
 Eigen::Matrix3d axisAngleRotation(const Eigen::Vector3d& axis, double angle);
 
-// Compute forward kinematics
+// Compute forward kinematics for N-DOF robot
+// q must have model.num_revolute_joints elements
 // Writes joint_transforms and end_effector_transform into data
 void computeForwardKinematics(
     const Model& model,
-    const std::array<double, 6>& q,
+    const Eigen::VectorXd& q,
     Data& data);
 
 }  // namespace jacobian

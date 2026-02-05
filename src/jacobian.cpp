@@ -3,11 +3,9 @@
 namespace jacobian {
 
 void computeLinearJacobian(const Model& model, Data& data) {
-    // End-effector position in base frame
     const Eigen::Vector3d p_e = data.end_effector_transform.block<3, 1>(0, 3);
 
-    // For each revolute joint
-    for (size_t i = 0; i < 6; ++i) {
+    for (size_t i = 0; i < model.num_revolute_joints; ++i) {
         const Eigen::Matrix4d& T_i = data.joint_transforms[i];
 
         // Get the joint's rotation axis in local frame
@@ -27,7 +25,7 @@ void computeLinearJacobian(const Model& model, Data& data) {
 
 void computeJacobian(
     const Model& model,
-    const std::array<double, 6>& q,
+    const Eigen::VectorXd& q,
     Data& data)
 {
     computeForwardKinematics(model, q, data);

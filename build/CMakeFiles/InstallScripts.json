@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/nick/jacobian/build/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
