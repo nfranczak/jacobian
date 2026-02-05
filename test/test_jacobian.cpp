@@ -113,6 +113,80 @@ int main() {
         tests_total++;
     }
 
+    // --- 2-link velocity tests: check v = J(q) * q_dot against expected values ---
+
+    // q=[0,0], q_dot=[1,0]: base spinning at 1 rad/s, EE is 2m away along X
+    // EE traces a circle of radius 2 about Z → v = [0, 2, 0]
+    {
+        Eigen::VectorXd q = Eigen::VectorXd::Zero(2);
+        Eigen::VectorXd q_dot(2);
+        q_dot << 1, 0;
+
+        Data data(twolink);
+        computeJacobian(twolink, q, data);
+        Eigen::Vector3d v = data.Jv * q_dot;
+        Eigen::Vector3d v_expected(0, 2, 0);
+
+        double error = (v - v_expected).norm();
+        bool passed = error < 1e-10;
+        std::cout << "Test: 2-link velocity - q=[0,0], q_dot=[1,0]\n";
+        std::cout << "  Expected v: " << v_expected.transpose() << "\n";
+        std::cout << "  Got v:      " << v.transpose() << "\n";
+        std::cout << "  Error: " << std::scientific << error << "\n";
+        std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
+        if (passed) tests_passed++;
+        tests_total++;
+    }
+
+    // q=[pi/2, 0], q_dot=[1,0]: base spinning at 1 rad/s, arm points along +Y
+    // EE is at (0,2,0), sweeps in -X direction → v = [-2, 0, 0]
+    {
+        Eigen::VectorXd q(2);
+        q << M_PI / 2, 0;
+        Eigen::VectorXd q_dot(2);
+        q_dot << 1, 0;
+
+        Data data(twolink);
+        computeJacobian(twolink, q, data);
+        Eigen::Vector3d v = data.Jv * q_dot;
+        Eigen::Vector3d v_expected(-2, 0, 0);
+
+        double error = (v - v_expected).norm();
+        bool passed = error < 1e-10;
+        std::cout << "Test: 2-link velocity - q=[pi/2,0], q_dot=[1,0]\n";
+        std::cout << "  Expected v: " << v_expected.transpose() << "\n";
+        std::cout << "  Got v:      " << v.transpose() << "\n";
+        std::cout << "  Error: " << std::scientific << error << "\n";
+        std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
+        if (passed) tests_passed++;
+        tests_total++;
+    }
+
+    // q=[0, pi/2], q_dot=[1,0]: base spinning at 1 rad/s, link2 bent 90deg up
+    // EE at (1,1,0), radius from Z axis is sqrt(2) but velocity is cross product:
+    // J1 col = [0,0,1] x [1,1,0] = [-1, 1, 0] → v = [-1, 1, 0]
+    {
+        Eigen::VectorXd q(2);
+        q << 0, M_PI / 2;
+        Eigen::VectorXd q_dot(2);
+        q_dot << 1, 0;
+
+        Data data(twolink);
+        computeJacobian(twolink, q, data);
+        Eigen::Vector3d v = data.Jv * q_dot;
+        Eigen::Vector3d v_expected(-1, 1, 0);
+
+        double error = (v - v_expected).norm();
+        bool passed = error < 1e-10;
+        std::cout << "Test: 2-link velocity - q=[0,pi/2], q_dot=[1,0]\n";
+        std::cout << "  Expected v: " << v_expected.transpose() << "\n";
+        std::cout << "  Got v:      " << v.transpose() << "\n";
+        std::cout << "  Error: " << std::scientific << error << "\n";
+        std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
+        if (passed) tests_passed++;
+        tests_total++;
+    }
+
     // --- 2-link ground-truth tests (hand-computed Jacobian values) ---
 
     // q=[0,0]: links along X, EE at (2,0,0)
