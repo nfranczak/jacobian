@@ -1,7 +1,9 @@
 #include "forward_kinematics.hpp"
 #include <cmath>
+#include <stdexcept>
 
 namespace jacobian {
+namespace detail {
 
 Eigen::Matrix3d rpyToRotationMatrix(double roll, double pitch, double yaw) {
     // URDF uses fixed-axis XYZ convention: R = Rz(yaw) * Ry(pitch) * Rx(roll)
@@ -47,11 +49,19 @@ Eigen::Matrix3d axisAngleRotation(const Eigen::Vector3d& axis, double angle) {
     return R;
 }
 
+}  // namespace detail
+
 void computeForwardKinematics(
     const Model& model,
     const Eigen::VectorXd& q,
     Data& data)
 {
+    if (static_cast<size_t>(q.size()) != model.revolute_joint_indices.size()) {
+        throw std::invalid_argument(
+            "q size mismatch: expected " + std::to_string(model.revolute_joint_indices.size())
+            + ", got " + std::to_string(q.size()));
+    }
+
     Eigen::Matrix4d T_current = Eigen::Matrix4d::Identity();
     size_t revolute_count = 0;
 
@@ -65,7 +75,7 @@ void computeForwardKinematics(
             data.joint_transforms[revolute_count] = T_current;
 
             // Apply joint rotation about local axis
-            Eigen::Matrix3d R_joint = axisAngleRotation(joint.axis, q[revolute_count]);
+            Eigen::Matrix3d R_joint = detail::axisAngleRotation(joint.axis, q[revolute_count]);
             Eigen::Matrix4d T_joint = Eigen::Matrix4d::Identity();
             T_joint.block<3, 3>(0, 0) = R_joint;
 

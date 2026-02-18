@@ -1,5 +1,5 @@
 #include "urdf_parser.hpp"
-#include "forward_kinematics.hpp"
+#include "detail/transforms.hpp"
 #include <tinyxml2.h>
 #include <stdexcept>
 #include <unordered_map>
@@ -29,9 +29,35 @@ JointType parseJointType(const char* type_str) {
     return JointType::Fixed;
 }
 
+// Check if target link is reachable from the given link
+bool isReachable(const std::string& link, const std::string& target,
+                 const std::unordered_map<std::string, std::vector<Joint>>& joints_by_parent) {
+    if (link == target) return true;
+    auto it = joints_by_parent.find(link);
+    if (it == joints_by_parent.end()) return false;
+    for (const auto& joint : it->second) {
+        if (isReachable(joint.child_link, target, joints_by_parent)) return true;
+    }
+    return false;
+}
+
+// Count the number of revolute joints reachable from a link (used to pick the longest chain)
+size_t chainDepth(const std::string& link,
+                  const std::unordered_map<std::string, std::vector<Joint>>& joints_by_parent) {
+    auto it = joints_by_parent.find(link);
+    if (it == joints_by_parent.end()) return 0;
+    size_t max_depth = 0;
+    for (const auto& joint : it->second) {
+        size_t depth = (joint.type == JointType::Revolute ? 1 : 0)
+                     + chainDepth(joint.child_link, joints_by_parent);
+        max_depth = std::max(max_depth, depth);
+    }
+    return max_depth;
+}
+
 }  // anonymous namespace
 
-Model parseURDF(const std::string& urdf_path) {
+Model parseURDF(const std::string& urdf_path, const std::string& end_effector_link) {
     tinyxml2::XMLDocument doc;
     if (doc.LoadFile(urdf_path.c_str()) != tinyxml2::XML_SUCCESS) {
         throw std::runtime_error("Failed to load URDF file: " + urdf_path);
@@ -83,8 +109,8 @@ Model parseURDF(const std::string& urdf_path) {
         }
 
         // Precompute static placement transform
-        Eigen::Matrix3d R = rpyToRotationMatrix(origin_rpy.x(), origin_rpy.y(), origin_rpy.z());
-        joint.placement = createTransform(R, origin_xyz);
+        Eigen::Matrix3d R = detail::rpyToRotationMatrix(origin_rpy.x(), origin_rpy.y(), origin_rpy.z());
+        joint.placement = detail::createTransform(R, origin_xyz);
 
         parent_links.insert(joint.parent_link);
         child_links.insert(joint.child_link);
@@ -103,23 +129,52 @@ Model parseURDF(const std::string& urdf_path) {
         current_link = joints_by_parent.begin()->first;
     }
 
-    // Traverse the serial chain
+    // Traverse the kinematic chain, resolving branching deterministically
     while (joints_by_parent.find(current_link) != joints_by_parent.end()) {
         const auto& children = joints_by_parent[current_link];
         if (children.empty()) break;
 
-        const Joint& joint = children[0];
-        model.joints.push_back(joint);
+        const Joint* chosen = nullptr;
 
-        if (joint.type == JointType::Revolute) {
-            model.revolute_joint_indices.push_back(model.joints.size() - 1);
-            model.num_revolute_joints++;
+        if (children.size() == 1) {
+            chosen = &children[0];
+        } else if (!end_effector_link.empty()) {
+            // Pick the branch that leads to the specified end-effector
+            for (const auto& joint : children) {
+                if (isReachable(joint.child_link, end_effector_link, joints_by_parent)) {
+                    chosen = &joint;
+                    break;
+                }
+            }
+            if (!chosen) {
+                throw std::runtime_error(
+                    "End-effector link '" + end_effector_link
+                    + "' is not reachable from link '" + current_link + "'");
+            }
+        } else {
+            // No end-effector specified: follow the branch with the most revolute joints
+            size_t best_depth = 0;
+            for (const auto& joint : children) {
+                size_t depth = (joint.type == JointType::Revolute ? 1 : 0)
+                             + chainDepth(joint.child_link, joints_by_parent);
+                if (depth > best_depth) {
+                    best_depth = depth;
+                    chosen = &joint;
+                }
+            }
+            if (!chosen) chosen = &children[0];
         }
 
-        current_link = joint.child_link;
+        model.joints.push_back(*chosen);
+
+        if (chosen->type == JointType::Revolute) {
+            model.revolute_joint_indices.push_back(model.joints.size() - 1);
+        }
+
+        current_link = chosen->child_link;
     }
 
-    if (model.num_revolute_joints == 0) {
+    if (model.revolute_joint_indices.empty()) {
         throw std::runtime_error("No revolute joints found in URDF");
     }
 

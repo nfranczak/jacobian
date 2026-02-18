@@ -1,6 +1,6 @@
-# Linear Velocity Jacobian for 6DoF Robotic Arms
+# Linear Velocity Jacobian for Robotic Arms
 
-A C++ library to compute the linear velocity Jacobian (3×6) for 6DoF robotic arms with revolute joints. Loads robot kinematics from URDF files.
+A C++ library to compute the linear velocity Jacobian for N-DOF robotic arms with revolute joints. Loads robot kinematics from URDF files.
 
 ## Features
 
@@ -8,6 +8,7 @@ A C++ library to compute the linear velocity Jacobian (3×6) for 6DoF robotic ar
 - Forward kinematics computation
 - Analytical linear velocity Jacobian
 - Zero-allocation runtime (Model/Data separation pattern)
+- Supports arbitrary N-DOF serial chains (not limited to 6-DOF)
 - Tested against numerical differentiation
 
 ## Dependencies
@@ -46,22 +47,23 @@ int main() {
     // Load robot model once at startup
     Model model = parseURDF("path/to/robot.urdf");
 
-    // Preallocate data struct (reused for each computation)
-    Data data;
+    // Preallocate data struct (sized to model, reused for each computation)
+    Data data(model);
 
     // Joint configuration (radians)
-    std::array<double, 6> q = {0.0, -1.57, 1.57, 0.0, 1.57, 0.0};
+    Eigen::VectorXd q(6);
+    q << 0.0, -1.57, 1.57, 0.0, 1.57, 0.0;
 
     // Compute FK and Jacobian
     computeJacobian(model, q, data);
 
     // Access results
     Eigen::Vector3d position = data.end_effector_transform.block<3,1>(0,3);
-    Eigen::Matrix<double, 3, 6> Jv = data.Jv;
+    Eigen::MatrixXd Jv = data.Jv;  // 3 x N matrix
 
     // Compute end-effector velocity from joint velocities
-    Eigen::Matrix<double, 6, 1> q_dot;
-    q_dot << 0.1, 0.0, 0.0, 0.0, 0.0, 0.0;
+    Eigen::VectorXd q_dot = Eigen::VectorXd::Zero(6);
+    q_dot[0] = 0.1;
     Eigen::Vector3d velocity = Jv * q_dot;
 
     return 0;
@@ -72,10 +74,10 @@ int main() {
 
 ```cpp
 Model model = parseURDF("robot.urdf");
-Data data;
+Data data(model);
 
 while (running) {
-    std::array<double, 6> q = getCurrentJointAngles();
+    Eigen::VectorXd q = getCurrentJointAngles();
 
     // No allocations here - data is reused
     computeJacobian(model, q, data);
@@ -95,6 +97,16 @@ Eigen::Vector3d p = data.end_effector_transform.block<3,1>(0,3);
 computeLinearJacobian(model, data);
 ```
 
+### Specifying End-Effector Link
+
+For URDFs with branching kinematic trees, specify the end-effector link to ensure the correct chain is followed:
+
+```cpp
+Model model = parseURDF("robot.urdf", "flange");
+```
+
+If omitted, the parser follows the branch with the most revolute joints.
+
 ## API Reference
 
 ### Data Structures
@@ -102,15 +114,16 @@ computeLinearJacobian(model, data);
 ```cpp
 struct Model {
     std::string name;
-    std::vector<Joint> joints;              // All joints in chain order
-    std::array<size_t, 6> revolute_joint_indices;
-    size_t num_revolute_joints;
+    std::vector<Joint> joints;                  // All joints in chain order
+    std::vector<size_t> revolute_joint_indices;  // Indices of revolute joints
 };
 
 struct Data {
-    std::array<Eigen::Matrix4d, 6> joint_transforms;  // Pre-rotation frames
-    Eigen::Matrix4d end_effector_transform;           // FK result
-    Eigen::Matrix<double, 3, 6> Jv;                   // Linear velocity Jacobian
+    std::vector<Eigen::Matrix4d> joint_transforms;  // Pre-rotation frames
+    Eigen::Matrix4d end_effector_transform;          // FK result
+    Eigen::MatrixXd Jv;                              // Linear velocity Jacobian (3 x N)
+
+    explicit Data(const Model& model);  // Preallocates based on model
 };
 ```
 
@@ -118,32 +131,19 @@ struct Data {
 
 | Function | Description |
 |----------|-------------|
-| `Model parseURDF(const std::string& path)` | Load robot from URDF file |
-| `void computeForwardKinematics(const Model&, const std::array<double,6>&, Data&)` | Compute FK only |
+| `Model parseURDF(const std::string& path, const std::string& end_effector_link = "")` | Load robot from URDF file |
+| `void computeForwardKinematics(const Model&, const Eigen::VectorXd& q, Data&)` | Compute FK only |
 | `void computeLinearJacobian(const Model&, Data&)` | Compute Jacobian (requires FK first) |
-| `void computeJacobian(const Model&, const std::array<double,6>&, Data&)` | Compute both FK and Jacobian |
-
-### Helper Functions
-
-```cpp
-// RPY to rotation matrix (URDF convention: R = Rz(yaw) * Ry(pitch) * Rx(roll))
-Eigen::Matrix3d rpyToRotationMatrix(double roll, double pitch, double yaw);
-
-// Rotation about arbitrary axis (Rodrigues' formula)
-Eigen::Matrix3d axisAngleRotation(const Eigen::Vector3d& axis, double angle);
-
-// Create 4x4 homogeneous transform
-Eigen::Matrix4d createTransform(const Eigen::Matrix3d& R, const Eigen::Vector3d& t);
-```
+| `void computeJacobian(const Model&, const Eigen::VectorXd& q, Data&)` | Compute both FK and Jacobian |
 
 ## URDF Requirements
 
 The library expects:
-- Exactly 6 revolute joints in the kinematic chain
-- Serial chain structure (no branching)
+- At least one revolute joint in the kinematic chain
+- Serial chain structure (branching resolved via end-effector link parameter)
 - Standard URDF format with `<joint>`, `<parent>`, `<child>`, `<origin>`, `<axis>` elements
 
-Tested with Universal Robots UR20 URDF.
+Tested with Universal Robots UR20 URDF and a 2-link planar robot.
 
 ## Algorithm
 

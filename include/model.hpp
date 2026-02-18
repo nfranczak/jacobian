@@ -39,8 +39,6 @@ struct Model {
 
     // Indices of revolute joints within joints[]
     std::vector<size_t> revolute_joint_indices;
-
-    size_t num_revolute_joints = 0;
 };
 
 struct Data {
@@ -56,9 +54,9 @@ struct Data {
 
     // Initialize data storage sized for the given model
     explicit Data(const Model& model)
-        : joint_transforms(model.num_revolute_joints, Eigen::Matrix4d::Identity())
+        : joint_transforms(model.revolute_joint_indices.size(), Eigen::Matrix4d::Identity())
         , end_effector_transform(Eigen::Matrix4d::Identity())
-        , Jv(Eigen::MatrixXd::Zero(3, model.num_revolute_joints))
+        , Jv(Eigen::MatrixXd::Zero(3, model.revolute_joint_indices.size()))
     {}
 };
 

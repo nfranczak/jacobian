@@ -5,7 +5,7 @@ namespace jacobian {
 void computeLinearJacobian(const Model& model, Data& data) {
     const Eigen::Vector3d p_e = data.end_effector_transform.block<3, 1>(0, 3);
 
-    for (size_t i = 0; i < model.num_revolute_joints; ++i) {
+    for (size_t i = 0; i < model.revolute_joint_indices.size(); ++i) {
         const Eigen::Matrix4d& T_i = data.joint_transforms[i];
 
         // Get the joint's rotation axis in local frame

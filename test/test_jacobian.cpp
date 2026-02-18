@@ -15,7 +15,7 @@ Eigen::MatrixXd computeNumericalJacobian(
     const Eigen::VectorXd& q,
     double delta = 1e-7)
 {
-    const size_t n = model.num_revolute_joints;
+    const size_t n = model.revolute_joint_indices.size();
     Eigen::MatrixXd J_numerical(3, n);
     Data data_plus(model), data_minus(model);
 

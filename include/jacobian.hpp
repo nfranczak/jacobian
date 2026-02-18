@@ -11,7 +11,7 @@ namespace jacobian {
 void computeLinearJacobian(const Model& model, Data& data);
 
 // Convenience function: compute both FK and Jacobian
-// q must have model.num_revolute_joints elements
+// q must have model.revolute_joint_indices.size() elements
 void computeJacobian(
     const Model& model,
     const Eigen::VectorXd& q,
