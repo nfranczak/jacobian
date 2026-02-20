@@ -2,7 +2,7 @@
 
 namespace jacobian {
 
-void computeLinearJacobian(const Model& model, Data& data) {
+void computeJacobian(const Model& model, Data& data) {
     const Eigen::Vector3d p_e = data.end_effector_transform.block<3, 1>(0, 3);
 
     for (size_t i = 0; i < model.revolute_joint_indices.size(); ++i) {
@@ -18,8 +18,11 @@ void computeLinearJacobian(const Model& model, Data& data) {
         // Joint position in base frame
         const Eigen::Vector3d p_i = T_i.block<3, 1>(0, 3);
 
-        // Jacobian column: z_i × (p_e - p_i)
-        data.Jv.col(i) = z_i.cross(p_e - p_i);
+        // Linear velocity: z_i × (p_e - p_i)
+        data.J.block<3, 1>(0, i) = z_i.cross(p_e - p_i);
+
+        // Angular velocity: z_i
+        data.J.block<3, 1>(3, i) = z_i;
     }
 }
 
@@ -29,7 +32,7 @@ void computeJacobian(
     Data& data)
 {
     computeForwardKinematics(model, q, data);
-    computeLinearJacobian(model, data);
+    computeJacobian(model, data);
 }
 
 }  // namespace jacobian

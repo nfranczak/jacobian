@@ -16,7 +16,7 @@ Eigen::MatrixXd computeNumericalJacobian(
     double delta = 1e-7)
 {
     const size_t n = model.revolute_joint_indices.size();
-    Eigen::MatrixXd J_numerical(3, n);
+    Eigen::MatrixXd J_numerical(6, n);
     Data data_plus(model), data_minus(model);
 
     for (size_t i = 0; i < n; ++i) {
@@ -28,10 +28,25 @@ Eigen::MatrixXd computeNumericalJacobian(
         computeForwardKinematics(model, q_plus, data_plus);
         computeForwardKinematics(model, q_minus, data_minus);
 
+        // Linear part: central difference of position
         Eigen::Vector3d p_plus = data_plus.end_effector_transform.block<3, 1>(0, 3);
         Eigen::Vector3d p_minus = data_minus.end_effector_transform.block<3, 1>(0, 3);
+        J_numerical.block<3, 1>(0, i) = (p_plus - p_minus) / (2.0 * delta);
 
-        J_numerical.col(i) = (p_plus - p_minus) / (2.0 * delta);
+        // Angular part: extract from relative rotation
+        Eigen::Matrix3d R_plus = data_plus.end_effector_transform.block<3, 3>(0, 0);
+        Eigen::Matrix3d R_minus = data_minus.end_effector_transform.block<3, 3>(0, 0);
+        Eigen::Matrix3d dR = R_plus * R_minus.transpose();
+
+        // For small angle: dR ≈ I + [ω]× * 2δ
+        // Extract ω from antisymmetric part: (dR - dR^T) / 2 = [ω]× * 2δ
+        Eigen::Vector3d omega;
+        omega << (dR(2, 1) - dR(1, 2)),
+                 (dR(0, 2) - dR(2, 0)),
+                 (dR(1, 0) - dR(0, 1));
+        omega /= (4.0 * delta);
+
+        J_numerical.block<3, 1>(3, i) = omega;
     }
 
     return J_numerical;
@@ -42,7 +57,7 @@ bool testJacobian(const Model& model, const Eigen::VectorXd& q, const std::strin
     computeJacobian(model, q, data);
 
     auto J_numerical = computeNumericalJacobian(model, q);
-    double error = (data.Jv - J_numerical).norm();
+    double error = (data.J - J_numerical).norm();
 
     std::cout << "Test: " << test_name << "\n";
     std::cout << "  q = [";
@@ -61,7 +76,7 @@ bool testJacobian(const Model& model, const Eigen::VectorXd& q, const std::strin
     std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n";
 
     if (!passed) {
-        std::cout << "  Analytical Jacobian:\n" << data.Jv << "\n";
+        std::cout << "  Analytical Jacobian:\n" << data.J << "\n";
         std::cout << "  Numerical Jacobian:\n" << J_numerical << "\n";
     }
     std::cout << "\n";
@@ -113,10 +128,10 @@ int main() {
         tests_total++;
     }
 
-    // --- 2-link velocity tests: check v = J(q) * q_dot against expected values ---
+    // --- 2-link velocity tests: check v = Jv * q_dot and ω = Jw * q_dot ---
 
     // q=[0,0], q_dot=[1,0]: base spinning at 1 rad/s, EE is 2m away along X
-    // EE traces a circle of radius 2 about Z → v = [0, 2, 0]
+    // EE traces a circle of radius 2 about Z → v = [0, 2, 0], ω = [0, 0, 1]
     {
         Eigen::VectorXd q = Eigen::VectorXd::Zero(2);
         Eigen::VectorXd q_dot(2);
@@ -124,14 +139,16 @@ int main() {
 
         Data data(twolink);
         computeJacobian(twolink, q, data);
-        Eigen::Vector3d v = data.Jv * q_dot;
+        Eigen::Vector3d v = data.J.topRows(3) * q_dot;
         Eigen::Vector3d v_expected(0, 2, 0);
+        Eigen::Vector3d omega = data.J.bottomRows(3) * q_dot;
+        Eigen::Vector3d omega_expected(0, 0, 1);
 
-        double error = (v - v_expected).norm();
+        double error = (v - v_expected).norm() + (omega - omega_expected).norm();
         bool passed = error < 1e-10;
         std::cout << "Test: 2-link velocity - q=[0,0], q_dot=[1,0]\n";
-        std::cout << "  Expected v: " << v_expected.transpose() << "\n";
-        std::cout << "  Got v:      " << v.transpose() << "\n";
+        std::cout << "  Expected v: " << v_expected.transpose() << "  Got v: " << v.transpose() << "\n";
+        std::cout << "  Expected ω: " << omega_expected.transpose() << "  Got ω: " << omega.transpose() << "\n";
         std::cout << "  Error: " << std::scientific << error << "\n";
         std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
         if (passed) tests_passed++;
@@ -139,7 +156,7 @@ int main() {
     }
 
     // q=[pi/2, 0], q_dot=[1,0]: base spinning at 1 rad/s, arm points along +Y
-    // EE is at (0,2,0), sweeps in -X direction → v = [-2, 0, 0]
+    // EE is at (0,2,0), sweeps in -X direction → v = [-2, 0, 0], ω = [0, 0, 1]
     {
         Eigen::VectorXd q(2);
         q << M_PI / 2, 0;
@@ -148,23 +165,24 @@ int main() {
 
         Data data(twolink);
         computeJacobian(twolink, q, data);
-        Eigen::Vector3d v = data.Jv * q_dot;
+        Eigen::Vector3d v = data.J.topRows(3) * q_dot;
         Eigen::Vector3d v_expected(-2, 0, 0);
+        Eigen::Vector3d omega = data.J.bottomRows(3) * q_dot;
+        Eigen::Vector3d omega_expected(0, 0, 1);
 
-        double error = (v - v_expected).norm();
+        double error = (v - v_expected).norm() + (omega - omega_expected).norm();
         bool passed = error < 1e-10;
         std::cout << "Test: 2-link velocity - q=[pi/2,0], q_dot=[1,0]\n";
-        std::cout << "  Expected v: " << v_expected.transpose() << "\n";
-        std::cout << "  Got v:      " << v.transpose() << "\n";
+        std::cout << "  Expected v: " << v_expected.transpose() << "  Got v: " << v.transpose() << "\n";
+        std::cout << "  Expected ω: " << omega_expected.transpose() << "  Got ω: " << omega.transpose() << "\n";
         std::cout << "  Error: " << std::scientific << error << "\n";
         std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
         if (passed) tests_passed++;
         tests_total++;
     }
 
-    // q=[0, pi/2], q_dot=[1,0]: base spinning at 1 rad/s, link2 bent 90deg up
-    // EE at (1,1,0), radius from Z axis is sqrt(2) but velocity is cross product:
-    // J1 col = [0,0,1] x [1,1,0] = [-1, 1, 0] → v = [-1, 1, 0]
+    // q=[0, pi/2], q_dot=[1,0]: base spinning at 1 rad/s, link2 bent 90deg
+    // EE at (1,1,0) → v = [-1, 1, 0], ω = [0, 0, 1]
     {
         Eigen::VectorXd q(2);
         q << 0, M_PI / 2;
@@ -173,41 +191,47 @@ int main() {
 
         Data data(twolink);
         computeJacobian(twolink, q, data);
-        Eigen::Vector3d v = data.Jv * q_dot;
+        Eigen::Vector3d v = data.J.topRows(3) * q_dot;
         Eigen::Vector3d v_expected(-1, 1, 0);
+        Eigen::Vector3d omega = data.J.bottomRows(3) * q_dot;
+        Eigen::Vector3d omega_expected(0, 0, 1);
 
-        double error = (v - v_expected).norm();
+        double error = (v - v_expected).norm() + (omega - omega_expected).norm();
         bool passed = error < 1e-10;
         std::cout << "Test: 2-link velocity - q=[0,pi/2], q_dot=[1,0]\n";
-        std::cout << "  Expected v: " << v_expected.transpose() << "\n";
-        std::cout << "  Got v:      " << v.transpose() << "\n";
+        std::cout << "  Expected v: " << v_expected.transpose() << "  Got v: " << v.transpose() << "\n";
+        std::cout << "  Expected ω: " << omega_expected.transpose() << "  Got ω: " << omega.transpose() << "\n";
         std::cout << "  Error: " << std::scientific << error << "\n";
         std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
         if (passed) tests_passed++;
         tests_total++;
     }
 
-    // --- 2-link ground-truth tests (hand-computed Jacobian values) ---
+    // --- 2-link ground-truth tests (hand-computed full Jacobian) ---
+    // All joints are Z-axis revolute, so Jw = [[0,0],[0,0],[1,1]] for all configs
 
     // q=[0,0]: links along X, EE at (2,0,0)
-    //   J1 at origin, axis Z: [0,0,1] x [2,0,0] = [0, 2, 0]
-    //   J2 at (1,0,0), axis Z: [0,0,1] x [1,0,0] = [0, 1, 0]
+    //   J1 at origin, axis Z: Jv = [0,0,1] x [2,0,0] = [0, 2, 0], Jw = [0,0,1]
+    //   J2 at (1,0,0), axis Z: Jv = [0,0,1] x [1,0,0] = [0, 1, 0], Jw = [0,0,1]
     {
         Eigen::VectorXd q = Eigen::VectorXd::Zero(2);
         Data data(twolink);
         computeJacobian(twolink, q, data);
 
-        Eigen::MatrixXd J_expected(3, 2);
+        Eigen::MatrixXd J_expected(6, 2);
         J_expected << 0, 0,
                       2, 1,
-                      0, 0;
+                      0, 0,
+                      0, 0,
+                      0, 0,
+                      1, 1;
 
-        double error = (data.Jv - J_expected).norm();
+        double error = (data.J - J_expected).norm();
         bool passed = error < 1e-10;
         std::cout << "Test: 2-link ground truth - q=[0,0]\n";
         std::cout << "  EE position: " << data.end_effector_transform.block<3,1>(0,3).transpose() << "\n";
-        std::cout << "  Expected Jv:\n" << J_expected << "\n";
-        std::cout << "  Got Jv:\n" << data.Jv << "\n";
+        std::cout << "  Expected J:\n" << J_expected << "\n";
+        std::cout << "  Got J:\n" << data.J << "\n";
         std::cout << "  Error: " << std::scientific << error << "\n";
         std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
         if (passed) tests_passed++;
@@ -215,25 +239,28 @@ int main() {
     }
 
     // q=[pi/2, 0]: link1 along Y, link2 along Y, EE at (0,2,0)
-    //   J1 at origin, axis Z: [0,0,1] x [0,2,0] = [-2, 0, 0]
-    //   J2 at (0,1,0), axis Z: [0,0,1] x [0,1,0] = [-1, 0, 0]
+    //   J1 at origin, axis Z: Jv = [0,0,1] x [0,2,0] = [-2, 0, 0], Jw = [0,0,1]
+    //   J2 at (0,1,0), axis Z: Jv = [0,0,1] x [0,1,0] = [-1, 0, 0], Jw = [0,0,1]
     {
         Eigen::VectorXd q(2);
         q << M_PI / 2, 0;
         Data data(twolink);
         computeJacobian(twolink, q, data);
 
-        Eigen::MatrixXd J_expected(3, 2);
+        Eigen::MatrixXd J_expected(6, 2);
         J_expected << -2, -1,
                        0,  0,
-                       0,  0;
+                       0,  0,
+                       0,  0,
+                       0,  0,
+                       1,  1;
 
-        double error = (data.Jv - J_expected).norm();
+        double error = (data.J - J_expected).norm();
         bool passed = error < 1e-10;
         std::cout << "Test: 2-link ground truth - q=[pi/2, 0]\n";
         std::cout << "  EE position: " << data.end_effector_transform.block<3,1>(0,3).transpose() << "\n";
-        std::cout << "  Expected Jv:\n" << J_expected << "\n";
-        std::cout << "  Got Jv:\n" << data.Jv << "\n";
+        std::cout << "  Expected J:\n" << J_expected << "\n";
+        std::cout << "  Got J:\n" << data.J << "\n";
         std::cout << "  Error: " << std::scientific << error << "\n";
         std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
         if (passed) tests_passed++;
@@ -241,25 +268,28 @@ int main() {
     }
 
     // q=[0, pi/2]: link1 along X, link2 along Y, EE at (1,1,0)
-    //   J1 at origin, axis Z: [0,0,1] x [1,1,0] = [-1, 1, 0]
-    //   J2 at (1,0,0), axis Z: [0,0,1] x [0,1,0] = [-1, 0, 0]
+    //   J1 at origin, axis Z: Jv = [0,0,1] x [1,1,0] = [-1, 1, 0], Jw = [0,0,1]
+    //   J2 at (1,0,0), axis Z: Jv = [0,0,1] x [0,1,0] = [-1, 0, 0], Jw = [0,0,1]
     {
         Eigen::VectorXd q(2);
         q << 0, M_PI / 2;
         Data data(twolink);
         computeJacobian(twolink, q, data);
 
-        Eigen::MatrixXd J_expected(3, 2);
+        Eigen::MatrixXd J_expected(6, 2);
         J_expected << -1, -1,
                        1,  0,
-                       0,  0;
+                       0,  0,
+                       0,  0,
+                       0,  0,
+                       1,  1;
 
-        double error = (data.Jv - J_expected).norm();
+        double error = (data.J - J_expected).norm();
         bool passed = error < 1e-10;
         std::cout << "Test: 2-link ground truth - q=[0, pi/2]\n";
         std::cout << "  EE position: " << data.end_effector_transform.block<3,1>(0,3).transpose() << "\n";
-        std::cout << "  Expected Jv:\n" << J_expected << "\n";
-        std::cout << "  Got Jv:\n" << data.Jv << "\n";
+        std::cout << "  Expected J:\n" << J_expected << "\n";
+        std::cout << "  Got J:\n" << data.J << "\n";
         std::cout << "  Error: " << std::scientific << error << "\n";
         std::cout << "  Result: " << (passed ? "PASSED" : "FAILED") << "\n\n";
         if (passed) tests_passed++;

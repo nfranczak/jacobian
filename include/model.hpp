@@ -49,14 +49,14 @@ struct Data {
     // Transform from base frame to end-effector
     Eigen::Matrix4d end_effector_transform;
 
-    // Linear velocity Jacobian (3 x num_revolute_joints)
-    Eigen::MatrixXd Jv;
+    // Full Jacobian (6 x num_revolute_joints): [linear velocity; angular velocity]
+    Eigen::MatrixXd J;
 
     // Initialize data storage sized for the given model
     explicit Data(const Model& model)
         : joint_transforms(model.revolute_joint_indices.size(), Eigen::Matrix4d::Identity())
         , end_effector_transform(Eigen::Matrix4d::Identity())
-        , Jv(Eigen::MatrixXd::Zero(3, model.revolute_joint_indices.size()))
+        , J(Eigen::MatrixXd::Zero(6, model.revolute_joint_indices.size()))
     {}
 };
 
