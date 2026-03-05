@@ -1,8 +1,10 @@
 #include "jacobian.hpp"
+#include <cassert>
 
 namespace jacobian {
 
 void computeJacobian(const Model& model, Data& data) {
+    assert(data.fk_computed && "computeJacobian: FK must be computed first (call computeForwardKinematics or the 3-argument overload)");
     const Eigen::Vector3d p_e = data.end_effector_transform.block<3, 1>(0, 3);
 
     for (size_t i = 0; i < model.revolute_joint_indices.size(); ++i) {

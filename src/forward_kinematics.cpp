@@ -85,6 +85,7 @@ void computeForwardKinematics(
     }
 
     data.end_effector_transform = T_current;
+    data.fk_computed = true;
 }
 
 }  // namespace jacobian

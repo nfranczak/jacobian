@@ -52,6 +52,9 @@ struct Data {
     // Full Jacobian (6 x num_revolute_joints): [linear velocity; angular velocity]
     Eigen::MatrixXd J;
 
+    // Whether FK has been computed (set by computeForwardKinematics)
+    bool fk_computed = false;
+
     // Initialize data storage sized for the given model
     explicit Data(const Model& model)
         : joint_transforms(model.revolute_joint_indices.size(), Eigen::Matrix4d::Identity())

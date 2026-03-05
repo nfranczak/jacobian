@@ -1,14 +1,15 @@
-# Linear Velocity Jacobian for Robotic Arms
+# Jacobian for Robotic Arms
 
-A C++ library to compute the linear velocity Jacobian for N-DOF robotic arms with revolute joints. Loads robot kinematics from URDF files.
+A C++ library to compute the geometric Jacobian (linear + angular velocity) for N-DOF robotic arms with revolute joints. Loads robot kinematics from URDF files.
 
 ## Features
 
 - URDF parsing for robot model definition
 - Forward kinematics computation
-- Analytical linear velocity Jacobian
+- Analytical geometric Jacobian (6 x N: linear and angular velocity)
+- Jacobian layout: `[linear (3); angular (3)]` (Siciliano/Spong convention, same as KDL/ROS)
 - Zero-allocation runtime (Model/Data separation pattern)
-- Supports arbitrary N-DOF serial chains (not limited to 6-DOF)
+- Supports arbitrary N-DOF serial chains with revolute joints
 - Tested against numerical differentiation
 
 ## Dependencies
@@ -59,12 +60,13 @@ int main() {
 
     // Access results
     Eigen::Vector3d position = data.end_effector_transform.block<3,1>(0,3);
-    Eigen::MatrixXd Jv = data.Jv;  // 3 x N matrix
+    Eigen::MatrixXd J = data.J;  // 6 x N matrix (linear velocity rows 0-2, angular velocity rows 3-5)
 
     // Compute end-effector velocity from joint velocities
     Eigen::VectorXd q_dot = Eigen::VectorXd::Zero(6);
     q_dot[0] = 0.1;
-    Eigen::Vector3d velocity = Jv * q_dot;
+    Eigen::Vector3d linear_velocity = J.topRows(3) * q_dot;
+    Eigen::Vector3d angular_velocity = J.bottomRows(3) * q_dot;
 
     return 0;
 }
@@ -82,7 +84,7 @@ while (running) {
     // No allocations here - data is reused
     computeJacobian(model, q, data);
 
-    // Use data.Jv for control...
+    // Use data.J for control...
 }
 ```
 
@@ -94,7 +96,7 @@ computeForwardKinematics(model, q, data);
 Eigen::Vector3d p = data.end_effector_transform.block<3,1>(0,3);
 
 // Jacobian requires FK to be computed first
-computeLinearJacobian(model, data);
+computeJacobian(model, data);
 ```
 
 ### Specifying End-Effector Link
@@ -121,7 +123,7 @@ struct Model {
 struct Data {
     std::vector<Eigen::Matrix4d> joint_transforms;  // Pre-rotation frames
     Eigen::Matrix4d end_effector_transform;          // FK result
-    Eigen::MatrixXd Jv;                              // Linear velocity Jacobian (3 x N)
+    Eigen::MatrixXd J;                               // Geometric Jacobian (6 x N)
 
     explicit Data(const Model& model);  // Preallocates based on model
 };
@@ -133,7 +135,7 @@ struct Data {
 |----------|-------------|
 | `Model parseURDF(const std::string& path, const std::string& end_effector_link = "")` | Load robot from URDF file |
 | `void computeForwardKinematics(const Model&, const Eigen::VectorXd& q, Data&)` | Compute FK only |
-| `void computeLinearJacobian(const Model&, Data&)` | Compute Jacobian (requires FK first) |
+| `void computeJacobian(const Model&, Data&)` | Compute Jacobian (requires FK first) |
 | `void computeJacobian(const Model&, const Eigen::VectorXd& q, Data&)` | Compute both FK and Jacobian |
 
 ## URDF Requirements
@@ -147,31 +149,42 @@ Tested with Universal Robots UR20 URDF and a 2-link planar robot.
 
 ## Algorithm
 
-The linear velocity Jacobian relates joint velocities to end-effector linear velocity:
+The geometric Jacobian relates joint velocities to end-effector linear and angular velocity:
 
 ```
-v = Jv * q̇
+[v; ω] = J * q̇
 ```
 
-For each revolute joint i, the Jacobian column is computed as:
+For each revolute joint i, the Jacobian column is:
 
 ```
-Jv[:,i] = zi × (pe - pi)
+J[:,i] = [zi × (pe - pi); zi]
 ```
 
 Where:
 - `zi` = rotation axis of joint i in base frame
 - `pi` = position of joint i in base frame
 - `pe` = end-effector position in base frame
+- Top 3 rows: linear velocity contribution
+- Bottom 3 rows: angular velocity contribution
 
 ## Testing
-This is a CMake-based C++ project. You can run tests with:
-cd build && ctest
-Or run the test binary directly:
-./build/test_jacobian
-If you need to rebuild first:
-cmake --build build && cd build && ctest
 
+```bash
+cd build && ctest
+```
+
+Or run the test binary directly:
+
+```bash
+./build/test_jacobian
+```
+
+If you need to rebuild first:
+
+```bash
+cmake --build build && cd build && ctest
+```
 
 ## License
 
